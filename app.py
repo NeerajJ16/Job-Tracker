@@ -77,10 +77,51 @@ def _find_jobposting(node):
     return None
 
 
+ATS_PATH_HOSTS = (   # company is the first path segment
+    "greenhouse.io", "lever.co", "ashbyhq.com", "workable.com",
+    "smartrecruiters.com", "jobvite.com", "breezy.hr", "rippling.com",
+)
+ATS_SUBDOMAIN_HOSTS = (  # company is the subdomain
+    "bamboohr.com", "recruitee.com", "myworkdayjobs.com", "teamtailor.com",
+    "workable.com", "freshteam.com", "applytojob.com", "pinpointhq.com",
+)
+GENERIC_NAMES = {"greenhouse", "lever", "ashby", "workable", "job boards", "jobs", "careers"}
+
+
+def _pretty(slug):
+    return slug.replace("-", " ").replace("_", " ").strip().title()
+
+
+def company_from_url(url):
+    """Company name hidden in ATS links, e.g. job-boards.greenhouse.io/heygen/jobs/123 -> Heygen."""
+    p = urlparse(url)
+    host = p.netloc.lower().replace("www.", "")
+    parts = [x for x in p.path.split("/") if x]
+    # Greenhouse embed links: ...?for=heygen
+    if "greenhouse.io" in host:
+        from urllib.parse import parse_qs
+        q = parse_qs(p.query).get("for")
+        if q:
+            return _pretty(q[0])
+    if any(host.endswith(h) for h in ATS_PATH_HOSTS) and parts:
+        return _pretty(parts[0])
+    if any(host.endswith(h) for h in ATS_SUBDOMAIN_HOSTS) and host.count(".") >= 2:
+        sub = host.split(".")[0]
+        if sub not in ("jobs", "careers", "apply"):
+            return _pretty(sub)
+    return ""
+
+
 def _split_title(text):
-    """Handle strings like 'Data Analyst at Acme | LinkedIn' or 'Data Analyst - Acme'."""
+    """Handle 'Job Application for Data Analyst at Acme | LinkedIn' or 'Data Analyst - Acme'."""
     text = text.split("|")[0].strip()
-    for sep in (" at ", " - ", " – ", " — ", " @ "):
+    for prefix in ("Job Application for ", "Application for ", "Apply for "):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+    if " at " in text:
+        a, b = text.rsplit(" at ", 1)
+        return a.strip(), b.strip()
+    for sep in (" - ", " – ", " — ", " @ "):
         if sep in text:
             a, b = text.split(sep, 1)
             return a.strip(), b.strip()
@@ -112,6 +153,9 @@ def extract(url):
         raw = og["content"] if og and og.get("content") else (soup.title.string if soup.title else "")
         title, company_guess = _split_title(raw or "")
         company = company or company_guess
+    if company.strip().lower() in GENERIC_NAMES:
+        company = ""
+    company = company or company_from_url(url)
     if not company:
         site = soup.find("meta", property="og:site_name")
         company = site["content"] if site and site.get("content") else urlparse(url).netloc.replace("www.", "")
@@ -182,7 +226,7 @@ if submitted and url.strip():
         st.success(f"Logged: **{title}** @ **{company}**")
     except Exception as e:
         st.warning(f"Couldn't auto-extract ({e}). Added a blank row — edit it below.")
-        add_job("(edit me)", urlparse(url).netloc.replace("www.", ""), url)
+        add_job("(edit me)", company_from_url(url) or urlparse(url).netloc.replace("www.", ""), url)
 
 rows = load_jobs()
 st.session_state["rows"] = rows
