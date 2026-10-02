@@ -2,6 +2,7 @@
 Paste a job link -> extracts title + company -> logs it to Firestore with today's date
 and status "Applied". The table is shown below and the Status column is a dropdown.
 """
+import hmac
 import json
 import datetime as dt
 from urllib.parse import urlparse
@@ -24,6 +25,29 @@ HEADERS = {
 }
 
 st.set_page_config(page_title="Job Tracker", page_icon="📋", layout="wide")
+
+
+# ---------- login ----------
+def check_login():
+    if st.session_state.get("authed"):
+        return
+    st.title("🔒 Job Tracker")
+    with st.form("login"):
+        user = st.text_input("Username")
+        pwd = st.text_input("Password", type="password")
+        ok = st.form_submit_button("Log in")
+    if ok:
+        good_user = hmac.compare_digest(user, st.secrets["login"]["username"])
+        good_pwd = hmac.compare_digest(pwd, st.secrets["login"]["password"])
+        if good_user and good_pwd:
+            st.session_state["authed"] = True
+            st.rerun()
+        else:
+            st.error("Wrong username or password.")
+    st.stop()
+
+
+check_login()
 
 
 @st.cache_resource
@@ -129,6 +153,9 @@ def save_edits():
 
 # ---------- UI ----------
 st.title("📋 Job Application Tracker")
+if st.button("Log out"):
+    st.session_state["authed"] = False
+    st.rerun()
 
 with st.form("add", clear_on_submit=True):
     url = st.text_input("Paste a job link", placeholder="https://...")
