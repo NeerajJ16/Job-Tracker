@@ -143,12 +143,23 @@ def load_jobs():
     return rows
 
 
+def editor_key():
+    return f"tbl_{st.session_state.get('ver', 0)}"
+
+
 def save_edits():
     """Called when the table is edited (status dropdown, title, company)."""
-    edits = st.session_state["tbl"].get("edited_rows", {})
+    edits = st.session_state[editor_key()].get("edited_rows", {})
     rows = st.session_state["rows"]
     for idx, changes in edits.items():
-        db().collection(COLLECTION).document(rows[int(idx)]["id"]).update(changes)
+        changes = {k: v for k, v in changes.items() if k != "delete"}
+        if changes:
+            db().collection(COLLECTION).document(rows[int(idx)]["id"]).update(changes)
+
+
+def delete_jobs(ids):
+    for doc_id in ids:
+        db().collection(COLLECTION).document(doc_id).delete()
 
 
 # ---------- UI ----------
@@ -179,12 +190,12 @@ st.session_state["rows"] = rows
 st.subheader(f"Applications ({len(rows)})")
 if rows:
     st.data_editor(
-        rows,
-        key="tbl",
+        [{**r, "delete": False} for r in rows],
+        key=editor_key(),
         on_change=save_edits,
         hide_index=True,
         width="stretch",
-        column_order=COLS,
+        column_order=COLS + ["delete"],
         disabled=["date_applied", "url"],
         column_config={
             "job_title": "Job title",
@@ -192,7 +203,15 @@ if rows:
             "date_applied": "Date",
             "status": st.column_config.SelectboxColumn("Status", options=STATUSES, required=True),
             "url": st.column_config.LinkColumn("Link", display_text="open"),
+            "delete": st.column_config.CheckboxColumn("Delete?", default=False),
         },
     )
+
+    edits = st.session_state.get(editor_key(), {}).get("edited_rows", {})
+    to_delete = [rows[int(i)]["id"] for i, ch in edits.items() if ch.get("delete")]
+    if st.button(f"🗑 Delete selected ({len(to_delete)})", disabled=not to_delete):
+        delete_jobs(to_delete)
+        st.session_state["ver"] = st.session_state.get("ver", 0) + 1  # reset editor state
+        st.rerun()
 else:
     st.info("No applications yet — paste a link above.")
