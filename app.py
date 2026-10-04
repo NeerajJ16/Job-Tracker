@@ -188,7 +188,8 @@ def load_jobs():
 
 
 def editor_key():
-    return f"tbl_{st.session_state.get('ver', 0)}"
+    # include the search text so row positions never get mixed up when the filter changes
+    return f"tbl_{st.session_state.get('ver', 0)}_{st.session_state.get('q', '')}"
 
 
 def save_edits():
@@ -228,10 +229,19 @@ if submitted and url.strip():
         st.warning(f"Couldn't auto-extract ({e}). Added a blank row — edit it below.")
         add_job("(edit me)", company_from_url(url) or urlparse(url).netloc.replace("www.", ""), url)
 
-rows = load_jobs()
-st.session_state["rows"] = rows
+all_rows = load_jobs()
 
-st.subheader(f"Applications ({len(rows)})")
+query = st.text_input("🔍 Search company or role", key="q", placeholder="e.g. heygen, data analyst").strip().lower()
+rows = [
+    r for r in all_rows
+    if not query
+    or query in (r.get("company") or "").lower()
+    or query in (r.get("job_title") or "").lower()
+]
+st.session_state["rows"] = rows  # the rows currently shown (edits/deletes use these positions)
+
+count = f"{len(rows)} of {len(all_rows)}" if query else str(len(all_rows))
+st.subheader(f"Applications ({count})")
 if rows:
     st.data_editor(
         [{**r, "delete": False} for r in rows],
@@ -257,5 +267,7 @@ if rows:
         delete_jobs(to_delete)
         st.session_state["ver"] = st.session_state.get("ver", 0) + 1  # reset editor state
         st.rerun()
+elif all_rows:
+    st.info("No applications match your search.")
 else:
     st.info("No applications yet — paste a link above.")
